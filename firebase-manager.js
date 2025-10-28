@@ -1,6 +1,7 @@
 // Firebase Database Manager
 // Firestore와 데이터 동기화를 관리하는 클래스
 
+const CHURCHES_COLLECTION = 'churches';
 class FirebaseManager {
     constructor() {
         this.isOnline = false;
@@ -26,178 +27,159 @@ class FirebaseManager {
         }
     }
 
-    // 교회 데이터 저장
-    async saveChurch(churchData) {
-        if (!this.isOnline) return this.saveLocal('churches', churchData);
-
+    // 데이터 로드 (초기)
+    async loadData() {
+        if (!this.isOnline) return null;
         try {
-            const docRef = await db.collection('churches').add({
-                ...churchData,
+            const snapshot = await db.collection(CHURCHES_COLLECTION).get();
+            const churches = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            return { churches };
+        } catch (error) {
+            console.error("Firebase에서 데이터 로드 실패:", error);
+            return null;
+        }
+    }
+
+    // 데이터 실시간 감지
+    listenForChanges(callback) {
+        if (!this.isOnline) return null;
+
+        return db.collection(CHURCHES_COLLECTION).onSnapshot(snapshot => {
+            const churches = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            callback({ churches });
+        }, error => {
+            console.error("Firebase 실시간 감지 실패:", error);
+        });
+    }
+
+    // 교회 추가
+    async addChurch(church) {
+        if (!this.isOnline) return;
+        try {
+            await db.collection(CHURCHES_COLLECTION).doc(church.id).set({
+                ...church,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 createdBy: this.currentUser
             });
-            return docRef.id;
         } catch (error) {
-            console.error('교회 저장 실패:', error);
-            return this.saveLocal('churches', churchData);
+            console.error("교회 추가 실패:", error);
         }
     }
 
-    // 그룹 데이터 저장
-    async saveGroup(churchId, groupData) {
-        if (!this.isOnline) return this.saveLocal('groups', groupData);
-
+    // 교회 삭제
+    async deleteChurch(churchId) {
+        if (!this.isOnline) return;
         try {
-            const docRef = await db.collection('churches')
-                .doc(churchId)
-                .collection('groups')
-                .add({
-                    ...groupData,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            return docRef.id;
+            await db.collection(CHURCHES_COLLECTION).doc(churchId).delete();
         } catch (error) {
-            console.error('그룹 저장 실패:', error);
-            return this.saveLocal('groups', groupData);
+            console.error("교회 삭제 실패:", error);
         }
     }
 
-    // 멤버 데이터 저장
-    async saveMember(churchId, groupId, memberData) {
-        if (!this.isOnline) return this.saveLocal('members', memberData);
-
+    // 그룹 추가
+    async addGroup(churchId, group) {
+        if (!this.isOnline) return;
         try {
-            const docRef = await db.collection('churches')
-                .doc(churchId)
-                .collection('groups')
-                .doc(groupId)
-                .collection('members')
-                .add({
-                    ...memberData,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            return docRef.id;
+            const churchRef = db.collection(CHURCHES_COLLECTION).doc(churchId);
+            await db.runTransaction(async (transaction) => {
+                const churchDoc = await transaction.get(churchRef);
+                if (!churchDoc.exists) {
+                    throw "Church does not exist!";
+                }
+                const groups = churchDoc.data().groups || [];
+                groups.push(group);
+                transaction.update(churchRef, { groups });
+            });
         } catch (error) {
-            console.error('멤버 저장 실패:', error);
-            return this.saveLocal('members', memberData);
+            console.error("그룹 추가 실패:", error);
+        }
+    }
+
+    // 그룹 삭제
+    async deleteGroup(churchId, groupId) {
+        if (!this.isOnline) return;
+        try {
+            const churchRef = db.collection(CHURCHES_COLLECTION).doc(churchId);
+            await db.runTransaction(async (transaction) => {
+                const churchDoc = await transaction.get(churchRef);
+                if (!churchDoc.exists) return;
+                const groups = (churchDoc.data().groups || []).filter(g => g.id !== groupId);
+                transaction.update(churchRef, { groups });
+            });
+        } catch (error) {
+            console.error("그룹 삭제 실패:", error);
+        }
+    }
+
+    // 멤버 추가
+    async addMember(churchId, groupId, member) {
+        if (!this.isOnline) return;
+        try {
+            const churchRef = db.collection(CHURCHES_COLLECTION).doc(churchId);
+            await db.runTransaction(async (transaction) => {
+                const churchDoc = await transaction.get(churchRef);
+                if (!churchDoc.exists) return;
+                const groups = churchDoc.data().groups || [];
+                const group = groups.find(g => g.id === groupId);
+                if (!group) return;
+                if (!group.members) group.members = [];
+                group.members.push(member);
+                transaction.update(churchRef, { groups });
+            });
+        } catch (error) {
+            console.error("멤버 추가 실패:", error);
+        }
+    }
+
+    // 멤버 삭제
+    async deleteMember(churchId, groupId, memberId) {
+        if (!this.isOnline) return;
+        try {
+            const churchRef = db.collection(CHURCHES_COLLECTION).doc(churchId);
+            await db.runTransaction(async (transaction) => {
+                const churchDoc = await transaction.get(churchRef);
+                if (!churchDoc.exists) return;
+                const groups = churchDoc.data().groups || [];
+                const group = groups.find(g => g.id === groupId);
+                if (group && group.members) {
+                    group.members = group.members.filter(m => m.id !== memberId);
+                }
+                transaction.update(churchRef, { groups });
+            });
+        } catch (error) {
+            console.error("멤버 삭제 실패:", error);
         }
     }
 
     // 읽기 기록 업데이트
-    async updateReading(churchId, groupId, memberId, readingData) {
-        if (!this.isOnline) {
-            return this.saveLocal('reading', { memberId, readingData });
-        }
-
+    async updateReading(churchId, groupId, memberId, reading) {
+        if (!this.isOnline) return;
         try {
-            await db.collection('churches')
-                .doc(churchId)
-                .collection('groups')
-                .doc(groupId)
-                .collection('members')
-                .doc(memberId)
-                .update({
-                    reading: readingData,
+            const churchRef = db.collection(CHURCHES_COLLECTION).doc(churchId);
+            await db.runTransaction(async (transaction) => {
+                const churchDoc = await transaction.get(churchRef);
+                if (!churchDoc.exists) return;
+                const groups = churchDoc.data().groups || [];
+                const group = groups.find(g => g.id === groupId);
+                if (!group || !group.members) return;
+                const member = group.members.find(m => m.id === memberId);
+                if (member) {
+                    member.reading = reading;
+                }
+                transaction.update(churchRef, {
+                    groups,
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                 });
-            return true;
-        } catch (error) {
-            console.error('읽기 기록 업데이트 실패:', error);
-            return this.saveLocal('reading', { memberId, readingData });
-        }
-    }
-
-    // 모든 교회 불러오기
-    async loadChurches() {
-        if (!this.isOnline) return this.loadLocal('churches');
-
-        try {
-            const snapshot = await db.collection('churches').get();
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-        } catch (error) {
-            console.error('교회 목록 불러오기 실패:', error);
-            return this.loadLocal('churches');
-        }
-    }
-
-    // 그룹 불러오기
-    async loadGroups(churchId) {
-        if (!this.isOnline) return this.loadLocal('groups', churchId);
-
-        try {
-            const snapshot = await db.collection('churches')
-                .doc(churchId)
-                .collection('groups')
-                .get();
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-        } catch (error) {
-            console.error('그룹 목록 불러오기 실패:', error);
-            return this.loadLocal('groups', churchId);
-        }
-    }
-
-    // 멤버 불러오기
-    async loadMembers(churchId, groupId) {
-        if (!this.isOnline) return this.loadLocal('members', groupId);
-
-        try {
-            const snapshot = await db.collection('churches')
-                .doc(churchId)
-                .collection('groups')
-                .doc(groupId)
-                .collection('members')
-                .get();
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-        } catch (error) {
-            console.error('멤버 목록 불러오기 실패:', error);
-            return this.loadLocal('members', groupId);
-        }
-    }
-
-    // 실시간 리스너 설정 (그룹 내 멤버들의 진행상황 공유)
-    listenToGroupMembers(churchId, groupId, callback) {
-        if (!this.isOnline) return null;
-
-        return db.collection('churches')
-            .doc(churchId)
-            .collection('groups')
-            .doc(groupId)
-            .collection('members')
-            .onSnapshot(snapshot => {
-                const members = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                callback(members);
             });
-    }
-
-    // 로컬 스토리지 폴백 (오프라인 모드)
-    saveLocal(type, data) {
-        const key = `offline_${type}`;
-        const existing = JSON.parse(localStorage.getItem(key) || '[]');
-        existing.push(data);
-        localStorage.setItem(key, JSON.stringify(existing));
-        return `local_${Date.now()}`;
-    }
-
-    loadLocal(type, filterId = null) {
-        const key = `offline_${type}`;
-        const data = JSON.parse(localStorage.getItem(key) || '[]');
-        
-        if (filterId) {
-            return data.filter(item => item.parentId === filterId);
+        } catch (error) {
+            console.error("읽기 기록 업데이트 실패:", error);
         }
-        return data;
     }
 
     // 온라인 상태 확인

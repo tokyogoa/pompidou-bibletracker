@@ -51,11 +51,12 @@ class BibleReadingApp {
         this.currentGroup = null;
         this.currentMember = null;
         this.lastSelectedChapter = null;
+        this.firebaseManager = null;
         this.firebaseEnabled = false;
         this.init();
     }
 
-    // Initialize app
+    // 앱 초기화
     async init() {
         this.setupEventListeners();
         
@@ -66,27 +67,54 @@ class BibleReadingApp {
             
             if (this.firebaseEnabled) {
                 this.showSnackbar('☁️ 온라인 모드: 실시간 공유 활성화');
+                const firebaseData = await this.firebaseManager.loadData();
+                if (firebaseData) {
+                    this.data = this.mergeData(this.loadData(), firebaseData);
+                }
+                this.firebaseManager.listenForChanges((newData) => {
+                    this.data = this.mergeData(this.data, newData);
+                    this.refreshCurrentView();
+                    console.log('실시간 데이터 업데이트됨');
+                });
             } else {
                 this.showSnackbar('📴 오프라인 모드: 로컬 저장만 가능');
             }
         }
         
+        this.saveData(); // 로컬에 병합된 데이터 저장
         this.renderChurches();
     }
 
     // ==================== DATA MANAGEMENT ====================
 
     loadData() {
-        const saved = localStorage.getItem('bibleReadingData');
-        if (saved) {
-            return JSON.parse(saved);
+        try {
+            const saved = localStorage.getItem('bibleReadingData');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // 데이터 구조 유효성 검사
+                if (parsed && Array.isArray(parsed.churches)) {
+                    return parsed;
+                }
+            }
+        } catch (e) {
+            console.error("로컬 데이터 로딩 실패:", e);
         }
-        return {
-            churches: [],
-            nextChurchId: 1,
-            nextGroupId: 1,
-            nextMemberId: 1
-        };
+        // 기본 데이터 구조 반환
+        return { churches: [], nextChurchId: 1, nextGroupId: 1, nextMemberId: 1 };
+    }
+
+    // 로컬 데이터와 Firebase 데이터 병합
+    mergeData(localData, firebaseData) {
+        // 간단한 병합: Firebase 데이터를 우선으로 하되, 로컬에만 있는 ID 시퀀스는 유지
+        const merged = { ...firebaseData };
+        merged.nextChurchId = Math.max(localData.nextChurchId || 1, (firebaseData.nextChurchId || 1));
+        merged.nextGroupId = Math.max(localData.nextGroupId || 1, (firebaseData.nextGroupId || 1));
+        merged.nextMemberId = Math.max(localData.nextMemberId || 1, (firebaseData.nextMemberId || 1));
+        // Firebase 데이터에 없는 ID 시퀀스 필드를 로컬 데이터에서 가져옴
+        if (!merged.churches) merged.churches = [];
+
+        return merged;
     }
 
     saveData() {
@@ -149,6 +177,18 @@ class BibleReadingApp {
         }
     }
 
+    // 현재 뷰를 다시 렌더링하는 함수
+    refreshCurrentView() {
+        if (this.currentView === 'churches') {
+            this.renderChurches();
+        } else if (this.currentView === 'groups' && this.currentChurch) {
+            this.renderGroups(this.findCurrentChurch());
+        } else if (this.currentView === 'members' && this.currentGroup) {
+            this.renderMembers(this.findCurrentChurch(), this.findCurrentGroup());
+        } else if (this.currentView === 'reading' && this.currentMember) {
+            this.renderReading(this.findCurrentChurch(), this.findCurrentGroup(), this.findCurrentMember());
+        }
+    }
     // ==================== VIEW RENDERING ====================
 
     renderChurches() {
@@ -191,7 +231,7 @@ class BibleReadingApp {
                         <h3>${church.name}</h3>
                         <p>${groupCount}개 그룹 • ${memberCount}명</p>
                     </div>
-                    <button class="icon-btn card-menu-btn" onclick="app.showChurchMenu(${church.id}, event)">
+                    <button class="icon-btn card-menu-btn" onclick="app.showChurchMenu('${church.id}', event)">
                         <span class="material-icons">more_vert</span>
                     </button>
                 </div>
@@ -246,7 +286,7 @@ class BibleReadingApp {
                         <h3>${group.name}</h3>
                         <p>${memberCount}명</p>
                     </div>
-                    <button class="icon-btn card-menu-btn" onclick="app.showGroupMenu(${church.id}, ${group.id}, event)">
+                    <button class="icon-btn card-menu-btn" onclick="app.showGroupMenu('${church.id}', '${group.id}', event)">
                         <span class="material-icons">more_vert</span>
                     </button>
                 </div>
@@ -302,7 +342,7 @@ class BibleReadingApp {
                         <h3>${member.name}</h3>
                         <p>${progress}% 완료 • ${completedBooks.length}권</p>
                     </div>
-                    <button class="icon-btn card-menu-btn" onclick="app.showMemberMenu(${church.id}, ${group.id}, ${member.id}, event)">
+                    <button class="icon-btn card-menu-btn" onclick="app.showMemberMenu('${church.id}', '${group.id}', '${member.id}', event)">
                         <span class="material-icons">more_vert</span>
                     </button>
                 </div>
@@ -395,6 +435,9 @@ class BibleReadingApp {
         if (confirm('정말로 모든 읽기 기록을 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
             this.currentMember.reading = {};
             this.saveData();
+            if (this.firebaseEnabled) {
+                this.firebaseManager.updateReading(this.currentChurch.id, this.currentGroup.id, this.currentMember.id, this.currentMember.reading);
+            }
             this.renderReading(this.currentChurch, this.currentGroup, this.currentMember);
             this.showSnackbar('모든 읽기 기록이 초기화되었습니다');
         }
@@ -579,6 +622,9 @@ class BibleReadingApp {
         if (confirm(`${bookName}의 모든 읽기 기록을 초기화하시겠습니까?`)) {
             this.currentMember.reading[bookName] = [];
             this.saveData();
+            if (this.firebaseEnabled) {
+                this.firebaseManager.updateReading(this.currentChurch.id, this.currentGroup.id, this.currentMember.id, this.currentMember.reading);
+            }
 
             const bookInfo = BIBLE_DATA.oldTestament[bookName] || BIBLE_DATA.newTestament[bookName];
             this.showChaptersModal(bookName, bookInfo, this.currentMember);
@@ -589,33 +635,23 @@ class BibleReadingApp {
     showChurchMenu(churchId, event) {
         event.stopPropagation();
         this.openModal('교회 관리', `
-            <p>이 교회를 삭제하시겠습니까?</p>
+            <p>이 교회를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
             <p style="color: var(--text-secondary); font-size: 0.875rem;">하위 그룹과 멤버도 모두 삭제됩니다.</p>
         `, `
             <button class="btn btn-text" onclick="app.closeModal()">취소</button>
-            <button class="btn btn-error" onclick="app.deleteChurch(${churchId})">삭제</button>
-        `);
-    }
-
-    showGroupMenu(churchId, groupId, event) {
-        event.stopPropagation();
-        this.openModal('그룹 관리', `
-            <p>이 그룹을 삭제하시겠습니까?</p>
-            <p style="color: var(--text-secondary); font-size: 0.875rem;">그룹의 멤버도 모두 삭제됩니다.</p>
-        `, `
-            <button class="btn btn-text" onclick="app.closeModal()">취소</button>
-            <button class="btn btn-error" onclick="app.deleteGroup(${churchId}, ${groupId})">삭제</button>
+            <button class="btn btn-error" onclick="app.deleteChurch('${churchId}')">삭제</button>
+            <button class="btn btn-error" onclick="app.deleteGroup('${churchId}', '${groupId}')">삭제</button>
         `);
     }
 
     showMemberMenu(churchId, groupId, memberId, event) {
         event.stopPropagation();
         this.openModal('멤버 관리', `
-            <p>이 멤버를 삭제하시겠습니까?</p>
+            <p>이 멤버를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
             <p style="color: var(--text-secondary); font-size: 0.875rem;">멤버의 읽기 기록도 모두 삭제됩니다.</p>
         `, `
             <button class="btn btn-text" onclick="app.closeModal()">취소</button>
-            <button class="btn btn-error" onclick="app.deleteMember(${churchId}, ${groupId}, ${memberId})">삭제</button>
+            <button class="btn btn-error" onclick="app.deleteMember('${churchId}', '${groupId}', '${memberId}')">삭제</button>
         `);
     }
 
@@ -640,12 +676,16 @@ class BibleReadingApp {
         }
 
         const church = {
-            id: this.data.nextChurchId++,
+            id: `church_${this.data.nextChurchId++}`,
             name: name,
             groups: []
         };
 
         this.data.churches.push(church);
+        if (this.firebaseEnabled) {
+            this.firebaseManager.addChurch(church);
+        }
+
         this.saveData();
         this.closeModal();
         this.renderChurches();
@@ -664,12 +704,16 @@ class BibleReadingApp {
         }
 
         const group = {
-            id: this.data.nextGroupId++,
+            id: `group_${this.data.nextGroupId++}`,
             name: name,
             members: []
         };
 
         this.currentChurch.groups.push(group);
+        if (this.firebaseEnabled) {
+            this.firebaseManager.addGroup(this.currentChurch.id, group);
+        }
+
         this.saveData();
         this.closeModal();
         this.renderGroups(this.currentChurch);
@@ -688,12 +732,16 @@ class BibleReadingApp {
         }
 
         const member = {
-            id: this.data.nextMemberId++,
+            id: `member_${this.data.nextMemberId++}`,
             name: name,
             reading: {}
         };
 
         this.currentGroup.members.push(member);
+        if (this.firebaseEnabled) {
+            this.firebaseManager.addMember(this.currentChurch.id, this.currentGroup.id, member);
+        }
+
         this.saveData();
         this.closeModal();
         this.renderMembers(this.currentChurch, this.currentGroup);
@@ -702,6 +750,10 @@ class BibleReadingApp {
 
     deleteChurch(churchId) {
         this.data.churches = this.data.churches.filter(c => c.id !== churchId);
+        if (this.firebaseEnabled) {
+            this.firebaseManager.deleteChurch(churchId);
+        }
+
         this.saveData();
         this.closeModal();
         this.renderChurches();
@@ -712,6 +764,10 @@ class BibleReadingApp {
         const church = this.data.churches.find(c => c.id === churchId);
         if (church) {
             church.groups = church.groups.filter(g => g.id !== groupId);
+            if (this.firebaseEnabled) {
+                this.firebaseManager.deleteGroup(churchId, groupId);
+            }
+
             this.saveData();
             this.closeModal();
             this.renderGroups(church);
@@ -725,6 +781,10 @@ class BibleReadingApp {
             const group = church.groups.find(g => g.id === groupId);
             if (group) {
                 group.members = group.members.filter(m => m.id !== memberId);
+                if (this.firebaseEnabled) {
+                    this.firebaseManager.deleteMember(churchId, groupId, memberId);
+                }
+
                 this.saveData();
                 this.closeModal();
                 this.renderMembers(church, group);
@@ -749,6 +809,9 @@ class BibleReadingApp {
         }
 
         this.saveData();
+        if (this.firebaseEnabled) {
+            this.firebaseManager.updateReading(this.currentChurch.id, this.currentGroup.id, this.currentMember.id, this.currentMember.reading);
+        }
         
         // Update UI
         const bookInfo = BIBLE_DATA.oldTestament[bookName] || BIBLE_DATA.newTestament[bookName];
@@ -756,6 +819,21 @@ class BibleReadingApp {
     }
 
     // ==================== HELPER FUNCTIONS ====================
+
+    findCurrentChurch() {
+        return this.data.churches.find(c => c.id === this.currentChurch.id);
+    }
+
+    findCurrentGroup() {
+        const church = this.findCurrentChurch();
+        return church ? (church.groups || []).find(g => g.id === this.currentGroup.id) : null;
+    }
+
+    findCurrentMember() {
+        const group = this.findCurrentGroup();
+        return group ? (group.members || []).find(m => m.id === this.currentMember.id) : null;
+    }
+
 
     calculateProgress(member) {
         if (!member.reading) return 0;

@@ -1,7 +1,4 @@
-// Firebase Configuration
-// Firebase Console에서 프로젝트 생성 후 아래 정보를 입력하세요
-// https://console.firebase.google.com/
-
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyCQbd4_Jg-CtoBwuRG0KMrkZdYPzhfFrrs",
   authDomain: "pompidou-bibletracker.firebaseapp.com",
@@ -46,7 +43,8 @@ async function signInAnonymously() {
     }
 }
 
-// Firestore 데이터 구조:
-// churches/{churchId} - 교회 정보
-//   └─ groups/{groupId} - 그룹 정보
-//       └─ members/{memberId} - 멤버 정보 및 읽기 기록
+// Firestore 데이터 구조 (단일 문서 내장 방식):
+// churches/{churchId}
+//   - id: "church_1"
+//   - name: "사랑교회"
+//   - groups: [ { id: "group_1", name: "청년부", members: [...] } ]
