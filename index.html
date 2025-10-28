@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>성경 읽기 트래커</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- App Bar -->
+        <header class="app-bar" id="appBar">
+            <button class="icon-btn back-btn" id="backBtn" style="display: none;">
+                <span class="material-icons">arrow_back</span>
+            </button>
+            <div class="app-bar-title">
+                <h1 id="appTitle">성경 읽기</h1>
+                <p id="appSubtitle"></p>
+            </div>
+            <button class="icon-btn" id="menuBtn">
+                <span class="material-icons">more_vert</span>
+            </button>
+        </header>
+
+        <!-- Menu Dropdown -->
+        <div class="menu-dropdown" id="menuDropdown">
+            <div class="menu-item" id="menuStats">
+                <span class="material-icons">bar_chart</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">전체 통계</div>
+                    <div class="menu-item-desc">모든 데이터 통계 보기</div>
+                </div>
+            </div>
+            <div class="menu-item" id="menuExport">
+                <span class="material-icons">download</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">데이터 내보내기</div>
+                    <div class="menu-item-desc">JSON 파일로 저장</div>
+                </div>
+            </div>
+            <div class="menu-item" id="menuImport">
+                <span class="material-icons">upload</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">데이터 불러오기</div>
+                    <div class="menu-item-desc">백업 파일 복원</div>
+                </div>
+            </div>
+            <div class="menu-item" id="menuGuide">
+                <span class="material-icons">menu_book</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">사용법</div>
+                    <div class="menu-item-desc">앱 사용 가이드</div>
+                </div>
+            </div>
+            <div class="menu-item" id="menuPrivacy">
+                <span class="material-icons">privacy_tip</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">프라이버시 정책</div>
+                    <div class="menu-item-desc">개인정보 처리방침</div>
+                </div>
+            </div>
+            <div class="menu-item" id="menuHome">
+                <span class="material-icons">home</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">처음으로</div>
+                    <div class="menu-item-desc">초기 화면으로 이동</div>
+                </div>
+            </div>
+            <div class="menu-item" id="menuHelp">
+                <span class="material-icons">help</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">도움말</div>
+                    <div class="menu-item-desc">자주 묻는 질문</div>
+                </div>
+            </div>
+            <div class="menu-item" id="menuAbout">
+                <span class="material-icons">info</span>
+                <div class="menu-item-text">
+                    <div class="menu-item-label">앱 정보</div>
+                    <div class="menu-item-desc">버전 및 정보</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content" id="mainContent">
+            <!-- Content will be dynamically loaded here -->
+        </main>
+
+        <!-- Floating Action Button -->
+        <button class="fab" id="fab" style="display: none;">
+            <span class="material-icons">add</span>
+        </button>
+
+        <!-- Modal Dialog -->
+        <div class="modal-overlay" id="modalOverlay">
+            <div class="modal" id="modal">
+                <div class="modal-header">
+                    <h2 id="modalTitle">제목</h2>
+                    <button class="icon-btn" id="modalClose">
+                        <span class="material-icons">close</span>
+                    </button>
+                </div>
+                <div class="modal-content" id="modalContent">
+                    <!-- Modal content will be dynamically loaded -->
+                </div>
+                <div class="modal-actions" id="modalActions">
+                    <!-- Modal actions will be dynamically loaded -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Snackbar -->
+        <div class="snackbar" id="snackbar">
+            <span id="snackbarMessage"></span>
+        </div>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <div class="footer-content">
+                <span class="material-icons">church</span>
+                <a href="https://sites.google.com/tokyodream.org/cross" target="_blank" rel="noopener noreferrer">
+                    도쿄드림교회 홈페이지 방문하기
+                </a>
+            </div>
+        </footer>
+    </div>
+
+    <script src="firebase-config.js"></script>
+    <script src="firebase-manager.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
